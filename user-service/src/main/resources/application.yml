@@ -1,0 +1,153 @@
+spring:
+  application:
+    name: user-service
+  
+  # Consul Service Discovery Configuration
+  # Enables automatic service registration/deregistration with Consul
+  # Services auto-register on startup and deregister on shutdown
+  cloud:
+    consul:
+      # Host: 'localhost' for local development, 'consul' for Docker containers
+      host: ${SPRING_CLOUD_CONSUL_HOST:localhost}
+      port: 8500
+      # Disable Consul config - we only use it for service discovery
+      config:
+        enabled: false
+      # Service registration settings
+      discovery:
+        # Enable service registration with Consul
+        enabled: true
+        # Service instance ID: unique identifier for this instance
+        # Format: service-name:hostname:port for easy identification
+        instance-id: ${spring.application.name}:${spring.cloud.client.hostname}:${server.port}
+        # Register service health checks with Consul
+        register-health-check: true
+        # Health check interval: how often Consul queries the service health endpoint
+        health-check-interval: 10s
+        # Health check timeout: maximum time to wait for health check response
+        health-check-timeout: 5s
+        # Health check path: endpoint Consul uses to verify service health
+        health-check-path: /actuator/health
+        # Use IP address instead of hostname for registration
+        prefer-ip-address: true
+        # Network interface to use for service registration
+        skip-registration: false
+      # Ribbon-based load balancing is enabled by default with Spring Cloud Consul
+      # This allows RestTemplate to automatically discover and load-balance between service instances
+  
+  # JPA/Hibernate Configuration
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+        jdbc:
+          batch_size: 20
+          fetch_size: 50
+        order_inserts: true
+        order_updates: true
+    show-sql: false
+  
+  # Database Configuration
+  datasource:
+    url: jdbc:postgresql://localhost:5432/user_db
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+    hikari:
+      maximum-pool-size: 20
+      minimum-idle: 5
+      connection-timeout: 20000
+      idle-timeout: 300000
+      max-lifetime: 1200000
+  
+  # Kafka Configuration
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      acks: all
+      retries: 3
+      compression-type: snappy
+      properties:
+        linger.ms: 10
+        batch.size: 16384
+  
+  # Flyway Database Migration Configuration
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+    out-of-order: false
+  
+  # Security Configuration
+  security:
+    user:
+      name: admin
+      password: admin123
+
+# Server Configuration
+server:
+  port: 8083
+  servlet:
+    context-path: /
+  compression:
+    enabled: true
+    min-response-size: 1024
+
+# Management/Actuator Configuration
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,info,prometheus
+  endpoint:
+    health:
+      show-details: when-authorized
+  metrics:
+    export:
+      simple:
+        enabled: true
+
+# JWT Configuration
+jwt:
+  # IMPORTANT: Change this to a strong secret key in production
+  # Secret key must be at least 256 bits (32 characters) for HS256
+  secret-key: ${JWT_SECRET_KEY:your-super-secret-key-change-this-in-production-at-least-256-bits}
+  
+  # Token expiration time in milliseconds (24 hours)
+  expiration-ms: ${JWT_EXPIRATION_MS:86400000}
+
+# Outbox Configuration
+outbox:
+  # Poll interval for checking pending events (milliseconds)
+  poll-interval: ${OUTBOX_POLL_INTERVAL:5000}
+  
+  # Retention period for published events before archival (days)
+  retention-days: ${OUTBOX_RETENTION_DAYS:7}
+  
+  # Maximum number of retries for failed event publishing
+  max-retries: ${OUTBOX_MAX_RETRIES:3}
+
+# Logging Configuration
+logging:
+  level:
+    root: INFO
+    goldmansachs: DEBUG
+    goldmansachs.user.security: DEBUG
+    goldmansachs.user.service: DEBUG
+    org.springframework.web: INFO
+    org.springframework.security: INFO
+    org.hibernate: WARN
+    org.springframework.kafka: INFO
+    org.springframework.data: DEBUG
+    org.springframework.cloud.consul: INFO
+    com.netflix.loadbalancer: INFO
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+    file: "%d{yyyy-MM-dd HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+  file:
+    name: logs/user-service.log
+    max-size: 10MB
+    max-history: 30

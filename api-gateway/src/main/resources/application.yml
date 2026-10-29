@@ -1,0 +1,280 @@
+# ============================================================================
+# Spring Cloud Gateway Application Configuration
+# ============================================================================
+# API Gateway - Single entry point for all external client requests
+# Routes requests to appropriate microservices based on path patterns
+# Uses Consul for automatic service discovery and dynamic routing
+#
+# Key Features:
+# - Non-blocking, reactive request processing (WebFlux)
+# - Automatic service discovery via Consul
+# - Load balancing across multiple service instances
+# - Health checks for backend services
+# - Centralized logging and monitoring
+# ============================================================================
+
+spring:
+  application:
+    name: api-gateway
+
+  # ========================================================================
+  # Consul Service Discovery Configuration
+  # ========================================================================
+  # Gateway registers itself with Consul so it can be discovered
+  # Gateway queries Consul to find backend services dynamically
+  cloud:
+    consul:
+      # Consul server location
+      # host: 'localhost' for local development, 'consul' for Docker
+      host: ${SPRING_CLOUD_CONSUL_HOST:localhost}
+      port: 8500
+      # Disable Consul config - we only use it for service discovery
+      config:
+        enabled: false
+      # Service registration settings
+      discovery:
+        enabled: true
+        # Instance ID: unique identifier for this gateway instance
+        instance-id: ${spring.application.name}:${spring.cloud.client.hostname}:${server.port}
+        # Health checks for gateway itself
+        register-health-check: true
+        health-check-interval: 10s
+        health-check-timeout: 5s
+        health-check-path: /actuator/health
+        prefer-ip-address: true
+        skip-registration: false
+
+    # ====================================================================
+    # Spring Cloud Gateway Routes Configuration
+    # ====================================================================
+    # Routes define how incoming requests are routed to backend services
+    # Each route specifies:
+    # - id: unique identifier for the route
+    # - uri: destination service using "lb://" for load-balanced discovery
+    # - predicates: conditions to match incoming requests
+    # - filters: transformations applied to requests/responses
+    # ====================================================================
+    gateway:
+      # Enable gateway (default is true, explicit for clarity)
+      enabled: true
+
+      # Default filter configuration (applied to all routes)
+      default-filters:
+        # Add X-Gateway-Header to all responses (for debugging)
+        - name: AddResponseHeader
+          args:
+            name: X-Gateway-Header
+            value: API-Gateway-1.0
+
+      routes:
+        # ================================================================
+        # Route 1: Order Service Routes
+        # ================================================================
+        # Handles all order-related API requests
+        # - POST   /api/v1/orders - Create new order
+        # - GET    /api/v1/orders/{orderNumber} - Get order details
+        # - GET    /api/v1/orders/customer/{customerId} - List customer orders
+        # - PATCH  /api/v1/orders/{orderId}/status - Update order status
+        #
+        # Service Discovery:
+        # - Gateway queries Consul for "order-service" instances
+        # - Ribbon load-balances across available instances
+        # - Failed instances automatically excluded by health checks
+        # ================================================================
+        - id: order-service-route
+          uri: lb://order-service
+          predicates:
+            # Match requests with path /api/v1/orders/**
+            - Path=/api/v1/orders/**
+          filters:
+            # Preserve original host header (important for CORS)
+            - name: PreserveHostHeader
+
+        # ================================================================
+        # Route 2: Settlement Service Routes
+        # ================================================================
+        # Handles all settlement-related API requests
+        # - GET /api/v1/settlements/{id} - Get settlement details
+        # - GET /api/v1/settlements - List settlements
+        # - Additional endpoints for settlement management
+        #
+        # Service Discovery:
+        # - Gateway discovers "settlement-service" via Consul
+        # - Routes to healthy instances only
+        # ================================================================
+        - id: settlement-service-route
+          uri: lb://settlement-service
+          predicates:
+            - Path=/api/v1/settlements/**
+          filters:
+            - name: PreserveHostHeader
+
+        # ================================================================
+        # Route 3: Reconciliation Service Routes
+        # ================================================================
+        # Handles reconciliation and batch processing requests
+        # - GET /api/v1/reconciliation/status - Get reconciliation status
+        # - POST /api/v1/reconciliation/run - Trigger reconciliation job
+        # - GET /api/v1/reconciliation/history - Get job history
+        #
+        # Service Discovery:
+        # - Gateway discovers "reconciliation-service" via Consul
+        # - Routes to available instance
+        # ================================================================
+        - id: reconciliation-service-route
+          uri: lb://reconciliation-service
+          predicates:
+            - Path=/api/v1/reconciliation/**
+          filters:
+            - name: PreserveHostHeader
+
+        # ================================================================
+        # Route 4: User/Authentication Service Routes (Part 1)
+        # ================================================================
+        # Handles user management API requests
+        # - GET /api/v1/users/{id} - Get user details
+        # - GET /api/v1/users - List users
+        # - PUT /api/v1/users/{id} - Update user
+        # - DELETE /api/v1/users/{id} - Delete user
+        #
+        # Service Discovery:
+        # - Gateway discovers "user-service" via Consul
+        # ================================================================
+        - id: user-service-route
+          uri: lb://user-service
+          predicates:
+            - Path=/api/v1/users/**
+          filters:
+            - name: PreserveHostHeader
+
+        # ================================================================
+        # Route 5: Authentication Routes (Part 2)
+        # ================================================================
+        # Handles authentication and authorization requests
+        # - POST /auth/login - User login (JWT token)
+        # - POST /auth/logout - User logout
+        # - POST /auth/refresh - Refresh JWT token
+        # - GET /auth/validate - Validate token
+        #
+        # Service Discovery:
+        # - Gateway routes to "user-service" for auth endpoints
+        # - User service handles JWT token generation/validation
+        # ================================================================
+        - id: auth-service-route
+          uri: lb://user-service
+          predicates:
+            - Path=/auth/**
+          filters:
+            - name: PreserveHostHeader
+
+        # ================================================================
+        # Route 6: Actuator/Health Routes (Gateway itself)
+        # ================================================================
+        # Expose gateway's own actuator endpoints
+        # - GET /gateway/health - Gateway health status
+        # - GET /gateway/metrics - Gateway metrics
+        # - GET /gateway/info - Gateway info
+        #
+        # Note: Consul already monitors /actuator/health
+        # These routes allow direct access to gateway diagnostics
+        # ================================================================
+        - id: gateway-actuator-route
+          uri: http://localhost:${server.port}
+          predicates:
+            - Path=/gateway/health,/gateway/metrics,/gateway/info
+          filters:
+            - name: RewritePath
+              args:
+                regexp: /gateway(?<segment>.*)
+                replacement: /actuator${segment}
+
+# ============================================================================
+# Server Configuration
+# ============================================================================
+server:
+  port: 8000  # Gateway port (external entry point for clients)
+  servlet:
+    context-path: /
+  # Disable Jetty default behavior for better control
+  jetty:
+    threads:
+      max: 200
+      min: 10
+
+# ============================================================================
+# Management/Actuator Configuration
+# ============================================================================
+# Expose gateway health and metrics for monitoring
+management:
+  endpoints:
+    web:
+      exposure:
+        # Expose health, metrics, and info endpoints for monitoring
+        include: health,metrics,info,gateway
+      # Add Prometheus metrics support (optional, for future monitoring)
+      # include: health,metrics,info,gateway,prometheus
+  endpoint:
+    # Show detailed health information when authorized
+    health:
+      show-details: when-authorized
+    # Expose gateway routes information
+    gateway:
+      enabled: true
+  metrics:
+    export:
+      # Simple metrics export for monitoring
+      simple:
+        enabled: true
+
+# ============================================================================
+# Logging Configuration
+# ============================================================================
+# Detailed logging for gateway operations
+logging:
+  level:
+    # Root logger level
+    root: INFO
+
+    # Application logging (debug level for troubleshooting)
+    goldmansachs: DEBUG
+
+    # Spring Cloud Gateway logging
+    org.springframework.cloud.gateway: INFO
+    org.springframework.cloud.gateway.route.RouteDefinitionLocator: DEBUG
+
+    # Consul discovery logging
+    org.springframework.cloud.consul: INFO
+    org.springframework.cloud.consul.discovery: DEBUG
+
+    # Ribbon load balancer logging
+    com.netflix.loadbalancer: INFO
+    com.netflix.loadbalancer.LoadBalancerContext: DEBUG
+
+    # Spring Web logging
+    org.springframework.web: INFO
+
+    # Reactive WebFlux logging
+    org.springframework.web.reactive: INFO
+
+    # Spring Security logging (for future authentication)
+    org.springframework.security: INFO
+
+  # Log to console with formatted output
+  pattern:
+    console: "%d{HH:mm:ss.SSS} [%thread] %-5level %logger{36} - %msg%n"
+
+# ============================================================================
+# Gateway-Specific Configuration
+# ============================================================================
+# Custom configuration for gateway behavior
+
+# X-Request-ID tracking (for distributed tracing, future enhancement)
+gateway:
+  # Enable request ID propagation for tracing
+  enable-request-id: true
+
+  # Default behavior for failed requests
+  fail-on-error: false
+
+  # Request timeout settings (milliseconds)
+  request-timeout: 30000

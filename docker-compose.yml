@@ -1,0 +1,274 @@
+services:
+  postgres:
+    image: postgres:15-alpine
+    container_name: event-driven-postgres
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_INITDB_ARGS: "--encoding=UTF8"
+    ports:
+      - "5432:5432"
+    volumes:
+      - postgres_data:/var/lib/postgresql/data
+      - ./init-databases.sh:/docker-entrypoint-initdb.d/init.sh
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - event-driven-network
+
+  zookeeper:
+    image: confluentinc/cp-zookeeper:7.5.0
+    container_name: event-driven-zookeeper
+    environment:
+      ZOOKEEPER_CLIENT_PORT: 2181
+      ZOOKEEPER_SYNC_LIMIT: 2
+      ZOOKEEPER_INIT_LIMIT: 5
+    ports:
+      - "2181:2181"
+    healthcheck:
+      test: ["CMD", "echo", "ruok", "|", "nc", "localhost", "2181"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - event-driven-network
+
+  kafka:
+    image: confluentinc/cp-kafka:7.5.0
+    container_name: event-driven-kafka
+    depends_on:
+      zookeeper:
+        condition: service_healthy
+    environment:
+      KAFKA_BROKER_ID: 1
+      KAFKA_ZOOKEEPER_CONNECT: zookeeper:2181
+      KAFKA_ADVERTISED_LISTENERS: PLAINTEXT://kafka:9092
+      KAFKA_OFFSETS_TOPIC_REPLICATION_FACTOR: 1
+      KAFKA_AUTO_CREATE_TOPICS_ENABLE: "true"
+    ports:
+      - "9092:9092"
+    healthcheck:
+      test: ["CMD", "kafka-topics", "--bootstrap-server=localhost:9092", "--list"]
+      interval: 15s
+      timeout: 10s
+      retries: 10
+      start_period: 30s
+    networks:
+      - event-driven-network
+
+  # Consul Service Discovery
+  # Provides centralized service registration and discovery
+  # All microservices auto-register on startup and deregister on shutdown
+  # UI available at http://localhost:8500
+  consul:
+    image: hashicorp/consul:1.15
+    container_name: event-driven-consul
+    ports:
+      - "8500:8500"  # HTTP API and UI
+      - "8600:8600"  # DNS interface
+      - "8600:8600/udp"  # DNS UDP interface
+    environment:
+      CONSUL_BIND_INTERFACE: eth0
+    command: agent -server -ui -bootstrap-expect=1 -client=0.0.0.0
+    healthcheck:
+      test: ["CMD", "consul", "version"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - event-driven-network
+
+  order-service:
+    build:
+      context: .
+      dockerfile: ./order-service/Dockerfile
+    container_name: event-driven-order-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/order_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_CLOUD_CONSUL_HOST: consul
+    ports:
+      - "8080:8080"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z localhost 8080 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    networks:
+      - event-driven-network
+
+  settlement-service:
+    build:
+      context: .
+      dockerfile: ./settlement-service/Dockerfile
+    container_name: event-driven-settlement-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/settlement_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_CLOUD_CONSUL_HOST: consul
+    ports:
+      - "8081:8081"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z localhost 8081 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    networks:
+      - event-driven-network
+
+  reconciliation-service:
+    build:
+      context: .
+      dockerfile: ./reconciliation-service/Dockerfile
+    container_name: event-driven-reconciliation-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/reconciliation_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      SPRING_CLOUD_CONSUL_HOST: consul
+    ports:
+      - "8082:8082"
+    healthcheck:
+      test: ["CMD", "sh", "-c", "nc -z localhost 8082 || exit 1"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    networks:
+      - event-driven-network
+
+  user-service:
+    build:
+      context: .
+      dockerfile: ./user-service/Dockerfile
+    container_name: event-driven-user-service
+    depends_on:
+      postgres:
+        condition: service_healthy
+      kafka:
+        condition: service_healthy
+      consul:
+        condition: service_healthy
+    environment:
+      SPRING_DATASOURCE_URL: jdbc:postgresql://postgres:5432/user_db
+      SPRING_DATASOURCE_USERNAME: postgres
+      SPRING_DATASOURCE_PASSWORD: postgres
+      SPRING_KAFKA_BOOTSTRAP_SERVERS: kafka:9092
+      JWT_SECRET_KEY: your-super-secret-key-change-this-in-production-at-least-256-bits
+      SPRING_CLOUD_CONSUL_HOST: consul
+    ports:
+      - "8083:8083"
+    healthcheck:
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8083/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    networks:
+      - event-driven-network
+
+  # ============================================================================
+  # API Gateway Service
+  # ============================================================================
+  # Single entry point for all external client requests
+  # Routes requests to microservices based on path patterns
+  # Uses Consul service discovery for dynamic routing
+  #
+  # Key Features:
+  # - Non-blocking, reactive request processing
+  # - Automatic service discovery via Consul
+  # - Load balancing across multiple service instances
+  # - Health checks for backend services
+  # - CORS support for web frontends
+  #
+  # External Access:
+  # - Port 8000: Primary gateway endpoint for clients
+  # - Available routes:
+  #   * /api/v1/orders/** → order-service
+  #   * /api/v1/settlements/** → settlement-service
+  #   * /api/v1/reconciliation/** → reconciliation-service
+  #   * /api/v1/users/** → user-service
+  #   * /auth/** → user-service (authentication)
+  #
+  # Startup Sequence:
+  # 1. Waits for Consul to be healthy
+  # 2. Starts Spring Boot application
+  # 3. Connects to Consul and registers itself
+  # 4. Loads routes from application.yml
+  # 5. Ready to route requests to microservices
+  #
+  # Monitoring:
+  # - Consul UI: http://localhost:8500/ui/
+  # - Gateway Health: http://localhost:8000/actuator/health
+  # - Gateway Routes: http://localhost:8000/actuator/gateway/routes
+  # ============================================================================
+  api-gateway:
+    build:
+      context: .
+      dockerfile: ./api-gateway/Dockerfile
+    container_name: event-driven-api-gateway
+    depends_on:
+      consul:
+        condition: service_healthy
+      order-service:
+        condition: service_healthy
+      settlement-service:
+        condition: service_healthy
+      reconciliation-service:
+        condition: service_healthy
+      user-service:
+        condition: service_healthy
+    environment:
+      # Consul Discovery Configuration
+      SPRING_CLOUD_CONSUL_HOST: consul
+      SPRING_CLOUD_CONSUL_PORT: 8500
+    ports:
+      # External entry point: Clients connect to gateway on port 8000
+      - "8000:8000"
+    healthcheck:
+      # Gateway health check: Consul monitors this endpoint
+      test: ["CMD", "wget", "--quiet", "--tries=1", "--spider", "http://localhost:8000/actuator/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+      start_period: 90s
+    networks:
+      - event-driven-network
+
+volumes:
+  postgres_data:
+
+networks:
+  event-driven-network:
+    driver: bridge

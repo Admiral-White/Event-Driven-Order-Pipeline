@@ -1,0 +1,88 @@
+spring:
+  application:
+    name: order-service
+  
+  # Consul Service Discovery Configuration
+  # Enables automatic service registration/deregistration with Consul
+  # Services auto-register on startup and deregister on shutdown
+  cloud:
+    consul:
+      # Host: 'localhost' for local development, 'consul' for Docker containers
+      host: ${SPRING_CLOUD_CONSUL_HOST:localhost}
+      port: 8500
+      # Disable Consul config - we only use it for service discovery
+      config:
+        enabled: false
+      # Service registration settings
+      discovery:
+        # Enable service registration with Consul
+        enabled: true
+        # Service instance ID: unique identifier for this instance
+        # Format: service-name:hostname:port for easy identification
+        instance-id: ${spring.application.name}:${spring.cloud.client.hostname}:${server.port}
+        # Register service health checks with Consul
+        register-health-check: true
+        # Health check interval: how often Consul queries the service health endpoint
+        health-check-interval: 10s
+        # Health check timeout: maximum time to wait for health check response
+        health-check-timeout: 5s
+        # Health check path: endpoint Consul uses to verify service health
+        health-check-path: /actuator/health
+        # Use IP address instead of hostname for registration
+        prefer-ip-address: true
+        # Network interface to use for service registration
+        skip-registration: false
+      # Ribbon-based load balancing is enabled by default with Spring Cloud Consul
+      # This allows RestTemplate to automatically discover and load-balance between service instances
+  
+  jpa:
+    hibernate:
+      ddl-auto: update
+    properties:
+      hibernate:
+        dialect: org.hibernate.dialect.PostgreSQLDialect
+        format_sql: true
+    show-sql: false
+  datasource:
+    url: jdbc:postgresql://localhost:5432/order_db
+    username: postgres
+    password: postgres
+    driver-class-name: org.postgresql.Driver
+  kafka:
+    bootstrap-servers: localhost:9092
+    producer:
+      value-serializer: org.apache.kafka.common.serialization.StringSerializer
+      key-serializer: org.apache.kafka.common.serialization.StringSerializer
+      acks: all
+      retries: 3
+  flyway:
+    enabled: true
+    locations: classpath:db/migration
+    baseline-on-migrate: true
+
+server:
+  port: 8080
+  servlet:
+    context-path: /
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,metrics,info
+  endpoint:
+    health:
+      show-details: always
+  security:
+    enabled: false
+
+outbox:
+  poll-interval: 5000
+
+logging:
+  level:
+    goldmansachs: DEBUG
+    org.springframework.web: INFO
+    org.hibernate: WARN
+    org.springframework.cloud.consul: INFO
+    com.netflix.loadbalancer: INFO

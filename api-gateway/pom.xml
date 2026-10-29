@@ -1,0 +1,118 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0 https://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <!-- Parent POM: Inherits Spring Boot and Spring Cloud configurations -->
+    <parent>
+        <groupId>goldmansachs</groupId>
+        <artifactId>Event-Driven-Order-Pipeline</artifactId>
+        <version>1.0.0-SNAPSHOT</version>
+        <relativePath>..</relativePath>
+    </parent>
+
+    <artifactId>api-gateway</artifactId>
+    <name>API Gateway</name>
+    <description>
+        Spring Cloud Gateway API Gateway Service
+
+        Provides a single entry point for all external client requests to the microservices architecture.
+
+        Key Responsibilities:
+        - Route requests to appropriate microservices based on path patterns
+        - Leverage Consul service discovery for dynamic service resolution
+        - Load balance requests across multiple instances (via Ribbon)
+        - Health monitoring of backend services
+        - Future: Authentication, rate limiting, request transformation
+
+        Routes:
+        - /api/v1/orders/** → order-service
+        - /api/v1/settlements/** → settlement-service
+        - /api/v1/reconciliation/** → reconciliation-service
+        - /api/v1/users/** → user-service
+        - /auth/** → user-service (authentication)
+
+        Port: 8000 (Default - externally facing)
+
+        Dependencies:
+        - Spring Cloud Gateway: Non-blocking, reactive API gateway
+        - Spring Cloud Consul: Service discovery integration
+        - Spring Boot Actuator: Health checks and metrics
+        - Lombok: Reduce boilerplate code
+    </description>
+
+    <dependencies>
+        <!-- Spring Cloud Gateway: Non-blocking, reactive API gateway using WebFlux -->
+        <!-- Provides route configuration, load balancing, and service discovery integration -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-gateway</artifactId>
+        </dependency>
+
+        <!-- Spring Cloud Consul: Service discovery integration for the gateway -->
+        <!-- Gateway uses Consul to dynamically discover and route to microservices -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-consul-discovery</artifactId>
+        </dependency>
+
+        <!-- Spring Boot Actuator: Health checks and metrics exposure -->
+        <!-- Gateway also registers with Consul and exposes health endpoints -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-actuator</artifactId>
+        </dependency>
+
+        <!-- Exclude Spring MVC (spring-boot-starter-web) from parent POM -->
+        <!-- Gateway must use WebFlux (reactive), not servlet-based Spring MVC -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-web</artifactId>
+            <scope>provided</scope>
+            <exclusions>
+                <exclusion>
+                    <groupId>*</groupId>
+                    <artifactId>*</artifactId>
+                </exclusion>
+            </exclusions>
+        </dependency>
+
+        <!-- Spring Boot Starter Test: Testing support for gateway routes and filters -->
+        <dependency>
+            <groupId>org.springframework.boot</groupId>
+            <artifactId>spring-boot-starter-test</artifactId>
+            <scope>test</scope>
+        </dependency>
+
+        <!-- Spring Cloud Contract: Testing support for gateway routes (optional) -->
+        <dependency>
+            <groupId>org.springframework.cloud</groupId>
+            <artifactId>spring-cloud-starter-contract-stub-runner</artifactId>
+            <scope>test</scope>
+        </dependency>
+    </dependencies>
+
+    <!-- Build configuration -->
+    <build>
+        <plugins>
+            <!-- Maven Compiler Plugin: Disable annotation processing completely -->
+            <plugin>
+                <groupId>org.apache.maven.plugins</groupId>
+                <artifactId>maven-compiler-plugin</artifactId>
+                <configuration>
+                    <source>17</source>
+                    <target>17</target>
+                    <proc>none</proc> <!-- Disable all annotation processing -->
+                </configuration>
+            </plugin>
+            
+            <!-- Spring Boot Maven Plugin: Builds executable JAR and provides spring-boot:run command -->
+            <plugin>
+                <groupId>org.springframework.boot</groupId>
+                <artifactId>spring-boot-maven-plugin</artifactId>
+            </plugin>
+        </plugins>
+    </build>
+
+</project>

@@ -1,0 +1,16 @@
+target/
+.classpath
+.project
+.settings/
+.idea/
+*.iml
+*.class
+*.log
+*.jar
+.DS_Store
+*.swp
+*.swo
+*~
+.vscode/
+*.properties
+!application.properties
